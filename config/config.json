@@ -1,0 +1,15 @@
+{
+    "keywords": ["美妆", "护肤", "穿搭"],
+    "scroll_config": {
+        "speed_range": [0.5, 1.5],
+        "pause_range": [1.0, 3.0]
+    },
+    "ocr_config": {
+        "language": "chi_sim",
+        "psm": 6
+    },
+    "output_config": {
+        "folder": "result",
+        "filename_pattern": "{keyword}_{timestamp}"
+    }
+}
