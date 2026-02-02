@@ -10,10 +10,11 @@ import ctypes
 import re
 
 class VisionEngine:
-    def __init__(self, logger, ocr_config):
+    def __init__(self, logger, ocr_config, setup_tesseract=True):
         self.logger = logger
         self.config = ocr_config
-        self._setup_tesseract()
+        if setup_tesseract:
+            self._setup_tesseract()
 
     def _setup_tesseract(self):
         # Attempt to find tesseract executable in common locations if not in PATH
@@ -140,6 +141,11 @@ class VisionEngine:
 
     def find_keyword_click_point(self, image, keywords):
         try:
+            for k in (keywords or []):
+                pt = self.find_text_location(image, k)
+                if pt:
+                    return pt
+
             processed_img = self.preprocess_image(image)
             lang = self.config.get("language", "chi_sim")
             psm = self.config.get("psm", 6)
@@ -238,6 +244,116 @@ class VisionEngine:
             return None
 
     def find_text_location(self, image, target_text):
-        """Find location of specific text in image (not fully implemented in MVP)."""
-        # This would require using image_to_data to get bounding boxes
-        pass
+        if image is None or not target_text:
+            return None
+
+        try:
+            processed_img = self.preprocess_image(image)
+            lang = self.config.get("language", "chi_sim")
+            psm = self.config.get("psm", 6)
+            scale = float(self.config.get("scale", 2.0))
+            if not scale:
+                scale = 1.0
+
+            def _norm(s):
+                return re.sub(r"\W+", "", str(s), flags=re.UNICODE).upper()
+
+            target_norm = _norm(target_text)
+            if not target_norm:
+                return None
+
+            data = pytesseract.image_to_data(
+                processed_img,
+                lang=lang,
+                config=f"--psm {psm}",
+                output_type=pytesseract.Output.DICT,
+            )
+            n = len(data.get("text", []))
+
+            groups = {}
+            for i in range(n):
+                block_nums = data.get("block_num", None)
+                par_nums = data.get("par_num", None)
+                line_nums = data.get("line_num", None)
+                key = (
+                    int(block_nums[i]) if block_nums else 0,
+                    int(par_nums[i]) if par_nums else 0,
+                    int(line_nums[i]) if line_nums else 0,
+                )
+                groups.setdefault(key, []).append(i)
+
+            best_pt = None
+            best_score = -1.0
+
+            for idxs in groups.values():
+                tokens = []
+                joined = ""
+                cursor = 0
+
+                for i in idxs:
+                    raw = (data.get("text", [""])[i] or "").strip()
+                    if not raw:
+                        continue
+                    tnorm = _norm(raw)
+                    if not tnorm:
+                        continue
+                    try:
+                        conf = float(data.get("conf", ["-1"])[i])
+                    except Exception:
+                        conf = -1.0
+
+                    l = float(data.get("left", [0])[i])
+                    t = float(data.get("top", [0])[i])
+                    w = float(data.get("width", [0])[i])
+                    h = float(data.get("height", [0])[i])
+
+                    start = cursor
+                    end = cursor + len(tnorm)
+                    cursor = end
+                    joined += tnorm
+                    tokens.append(
+                        {
+                            "start": start,
+                            "end": end,
+                            "conf": conf,
+                            "left": l,
+                            "top": t,
+                            "right": l + w,
+                            "bottom": t + h,
+                        }
+                    )
+
+                if not joined or not tokens:
+                    continue
+
+                pos = joined.find(target_norm)
+                if pos < 0:
+                    continue
+
+                span_start = pos
+                span_end = pos + len(target_norm)
+                cov = [tok for tok in tokens if tok["end"] > span_start and tok["start"] < span_end]
+                if not cov:
+                    continue
+
+                left = min(tok["left"] for tok in cov)
+                top = min(tok["top"] for tok in cov)
+                right = max(tok["right"] for tok in cov)
+                bottom = max(tok["bottom"] for tok in cov)
+
+                confs = [tok["conf"] for tok in cov if tok["conf"] >= 0]
+                avg_conf = float(sum(confs) / len(confs)) if confs else 0.0
+                score = avg_conf + (len(target_norm) / max(1, len(joined))) * 20.0
+
+                cx = ((left + right) / 2.0) / scale
+                cy = ((top + bottom) / 2.0) / scale
+                pt = (int(cx), int(cy))
+
+                if score > best_score:
+                    best_score = score
+                    best_pt = pt
+
+            return best_pt
+        except Exception as e:
+            self.logger.error(f"Text location failed: {e}")
+            return None

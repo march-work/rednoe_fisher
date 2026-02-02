@@ -64,7 +64,19 @@ def _extract_publish_time(text, data_processor):
     if not text:
         return ""
     candidates = []
-    for pattern in [r"\d+\s*分钟前", r"\d+\s*小时前", r"昨天", r"\d{4}-\d{2}-\d{2}", r"\d{1,2}-\d{1,2}"]:
+    patterns = [
+        r"\d+\s*秒(钟)?前",
+        r"\d+\s*分钟?前",
+        r"\d+\s*小时(钟)?前",
+        r"\d+\s*天前",
+        r"昨天(\s*\d{1,2}\s*:\s*\d{1,2})?",
+        r"前天(\s*\d{1,2}\s*:\s*\d{1,2})?",
+        r"\d{4}\s*[-/.]\s*\d{1,2}\s*[-/.]\s*\d{1,2}",
+        r"\d{4}\s*年\s*\d{1,2}\s*月\s*\d{1,2}\s*日",
+        r"\d{1,2}\s*[-/.]\s*\d{1,2}",
+        r"(0?[1-9]|1[0-2])\s+(0?[1-9]|[12]\d|3[01])",
+    ]
+    for pattern in patterns:
         m = re.search(pattern, text)
         if m:
             candidates.append(m.group(0))
