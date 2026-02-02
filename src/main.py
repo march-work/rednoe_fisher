@@ -13,6 +13,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.utils.logger import setup_logger
 from src.utils.config_loader import ConfigLoader
+from src.utils.open_guard import update_confirm
 from src.modules.window_manager import WindowManager
 from src.modules.vision_engine import VisionEngine
 from src.modules.interaction_simulator import InteractionSimulator
@@ -109,6 +110,21 @@ def _extract_author(text):
                 return left
     return ""
 
+def _rect_contains(outer, x, y, margin=0):
+    if not outer:
+        return False
+    l, t, r, b = outer
+    return (l + margin) <= x <= (r - margin) and (t + margin) <= y <= (b - margin)
+
+def _rect_inside(outer, inner, margin=0):
+    if not outer or not inner:
+        return False
+    ol, ot, orr, ob = outer
+    il, it, ir, ib = inner
+    return (
+        (ol + margin) <= il and (ot + margin) <= it and (orr - margin) >= ir and (ob - margin) >= ib
+    )
+
 def main():
     _set_dpi_awareness()
 
@@ -133,6 +149,13 @@ def main():
     interaction = InteractionSimulator(logger, config_loader.get_scroll_config())
     data_processor = DataProcessor(logger, config_loader.get_output_config())
     visited_posts = set()
+    startup_t0 = time.monotonic()
+    startup_skip_open_seconds = float(config_loader.get("startup_skip_open_seconds", 2.5))
+    skip_open_until = startup_t0 + max(0.0, startup_skip_open_seconds)
+    open_on_match = bool(config_loader.get("open_on_match", True))
+    match_confirm_frames = int(config_loader.get("match_confirm_frames", 2))
+    pending_key = None
+    pending_count = 0
 
     # 3. Window Selection
     if args.window:
@@ -287,22 +310,66 @@ def main():
 
             last_action = "none"
             
+            if found_post and not open_on_match:
+                logger.info("Found matched post but open_on_match=false. Skipping open.")
+                found_post = None
+
             if found_post:
                 rx, ry, rw, rh = found_post["rect"]
+                post_rect_abs = (rx, ry, rx + rw, ry + rh)
                 cx = rx + rw // 2
                 cy = ry + rh // 2
+
+                skip_reason = None
+                now_mono = time.monotonic()
+                if now_mono < skip_open_until:
+                    skip_reason = "startup_grace"
+                elif match_confirm_frames > 1:
+                    key = (found_post.get("key") or "").strip()
+                    pending_key, pending_count, ready = update_confirm(
+                        pending_key, pending_count, key, match_confirm_frames
+                    )
+                    if not ready:
+                        if not key:
+                            skip_reason = "empty_key"
+                        else:
+                            skip_reason = f"confirm_{pending_count}/{match_confirm_frames}"
                 
                 # Check safe area
                 is_safe = True
                 if layout_info:
                     header = layout_info["safe_area"]["header"]
                     footer = layout_info["safe_area"]["footer"]
-                    # Check if center point is in header or footer
-                    if (header[0] <= cx <= header[2] and header[1] <= cy <= header[3]) or \
-                       (footer[0] <= cx <= footer[2] and footer[1] <= cy <= footer[3]):
+                    content = layout_info["safe_area"]["content"]
+                    if _rect_contains(header, cx, cy) or _rect_contains(footer, cx, cy):
                         logger.warning(f"Click point ({cx},{cy}) is in unsafe area. Skipping.")
                         is_safe = False
+                    elif not _rect_inside(content, post_rect_abs, margin=8):
+                        logger.warning("Matched post is not fully inside content area. Skipping.")
+                        is_safe = False
                 
+                if skip_reason:
+                    logger.info(f"Skip open: {skip_reason}")
+                    if debug_log_path:
+                        with open(debug_log_path, "a", encoding="utf-8") as f:
+                            f.write(f"skip_open_reason={skip_reason}\n")
+                            f.write(f"pending_key={pending_key}\n")
+                            f.write(f"pending_count={pending_count}\n")
+                    time.sleep(0.2)
+                    continue
+
+                if not is_safe:
+                    if debug_log_path:
+                        with open(debug_log_path, "a", encoding="utf-8") as f:
+                            f.write("skip_open_reason=unsafe_area\n")
+                    if next_scroll_mode == "wheel":
+                        interaction.scroll_down_wheel()
+                    else:
+                        interaction.scroll_down(region=content_rect)
+                    last_action = "scroll"
+                    time.sleep(0.2)
+                    continue
+
                 if is_safe:
                     visited_posts.add(found_post["key"])
                     
@@ -322,7 +389,10 @@ def main():
                     
                     open_x, open_y = cx, cy
                     
-                    interaction.click(open_x, open_y, safe_check=True, forbidden_rects=[layout_info["safe_area"]["header"], layout_info["safe_area"]["footer"]] if layout_info else None)
+                    forbidden = None
+                    if layout_info:
+                        forbidden = [layout_info["safe_area"]["header"], layout_info["safe_area"]["footer"]]
+                    interaction.click(open_x, open_y, safe_check=True, forbidden_rects=forbidden)
                     last_action = "open"
                     time.sleep(float(config_loader.get("open_wait_seconds", 1.2)))
                     
@@ -434,6 +504,15 @@ def main():
                     if back_mode == "esc":
                         interaction.return_back()
                     else:
+                        try:
+                            cr = win32gui.GetClientRect(getattr(interaction, "hwnd", 0))
+                            client_w = int(cr[2])
+                            client_h = int(cr[3])
+                        except Exception:
+                            if before_image is not None:
+                                client_w, client_h = before_image.size
+                            else:
+                                client_w, client_h = (0, 0)
                         back_x_ratio = float(config_loader.get("back_click_x_ratio", 0.08))
                         back_y_ratio = float(config_loader.get("back_click_y_ratio", 0.08))
                         back_x = max(0, min(client_w - 1, int(client_w * back_x_ratio)))
