@@ -1,0 +1,5 @@
+Pillow
+opencv-python
+pytesseract
+pywin32
+pyautogui

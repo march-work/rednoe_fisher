@@ -4,6 +4,12 @@ __pycache__/
 *$py.class
 *.so
 .Python
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+.cache/
 build/
 develop-eggs/
 dist/
@@ -34,6 +40,7 @@ venv.bak/
 # IDE
 .idea/
 .vscode/
+.trae/
 *.swp
 *.swo
 
@@ -41,3 +48,4 @@ venv.bak/
 result/
 logs/
 screenshots/
+*.log
