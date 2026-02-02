@@ -57,8 +57,11 @@ class InteractionSimulator:
         sleep_time = random.uniform(min_time, max_time)
         time.sleep(sleep_time)
 
-    def click(self, x=None, y=None):
-        """Simulate a background mouse click at specific client coordinates."""
+    def click(self, x=None, y=None, safe_check=True, forbidden_rects=None):
+        """
+        Simulate a background mouse click at specific client coordinates.
+        forbidden_rects: List of (left, top, right, bottom) rects to avoid.
+        """
         if not self.hwnd:
             self.logger.error("No target window set for interaction")
             return
@@ -66,7 +69,16 @@ class InteractionSimulator:
         if x is None or y is None:
             x, y = self._get_client_center()
 
+        # Safe Check
+        if safe_check and forbidden_rects:
+            for fr in forbidden_rects:
+                fl, ft, fr_right, fb = fr
+                if fl <= x <= fr_right and ft <= y <= fb:
+                    self.logger.warning(f"Click blocked: ({x}, {y}) is in forbidden area {fr}")
+                    return
+
         # Show visual feedback
+
         sx, sy = self._client_to_screen(x, y)
         self.overlay.show_dot(sx, sy)
 
@@ -84,10 +96,11 @@ class InteractionSimulator:
         finally:
             self.overlay.hide_dot()
 
-    def scroll_down(self, start_x=None, start_y=None, distance=None):
+    def scroll_down(self, start_x=None, start_y=None, distance=None, region=None):
         """
         Simulate scrolling down by dragging UP in the background.
         Coordinates are relative to the client area (not screen).
+        region: Optional (left, top, right, bottom) tuple to restrict scroll area.
         """
         if not self.hwnd:
              self.logger.error("No target window set")
@@ -96,19 +109,43 @@ class InteractionSimulator:
         try:
             cx, cy = self._get_client_center()
             rect = win32gui.GetClientRect(self.hwnd)
-            height = rect[3]
+            win_w = rect[2]
+            win_h = rect[3]
+
+            # Determine scroll bounds
+            min_y, max_y = 0, win_h
+            min_x, max_x = 0, win_w
+            
+            if region:
+                min_x, min_y, max_x, max_y = region
+                # Ensure region is within window bounds
+                min_x = max(0, min_x)
+                min_y = max(0, min_y)
+                max_x = min(win_w, max_x)
+                max_y = min(win_h, max_y)
+                
+                cx = (min_x + max_x) // 2
 
             # Default to swiping from bottom 3/4 to top 1/4 (Swipe Up)
             if start_x is None: start_x = cx
-            if start_y is None: start_y = int(height * 0.75)
+            if start_y is None: 
+                # Start from 80% of the available height
+                start_y = int(min_y + (max_y - min_y) * 0.8)
             
+            # Ensure start point is within bounds
+            start_x = max(min_x, min(max_x, start_x))
+            start_y = max(min_y, min(max_y, start_y))
+
             if distance is None:
-                distance = int(height * 0.4) 
+                # Scroll 50% of the available height
+                distance = int((max_y - min_y) * 0.5)
 
             end_y = start_y - distance
-            if end_y < 10: end_y = 10
+            # Ensure end point is not above top margin (plus buffer)
+            if end_y < min_y + 10: end_y = min_y + 10
 
             self.logger.info(f"Background Scrolling down (Drag {start_x},{start_y} -> {start_x},{end_y})...")
+
             
             # Show overlay at start
             sx, sy = self._client_to_screen(start_x, start_y)

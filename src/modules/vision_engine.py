@@ -9,12 +9,37 @@ import win32con
 import ctypes
 import re
 
+from src.modules.layout_analysis import LayoutAnalyzer
+
 class VisionEngine:
     def __init__(self, logger, ocr_config, setup_tesseract=True):
         self.logger = logger
         self.config = ocr_config
+        self.layout_analyzer = LayoutAnalyzer()
         if setup_tesseract:
             self._setup_tesseract()
+
+    def analyze_page(self, image):
+        """
+        Analyze the full page to find safe areas and segment posts.
+        """
+        if image is None:
+            return None
+            
+        width, height = image.size
+        header, footer, content = self.layout_analyzer.detect_safe_area(width, height)
+        
+        posts = self.layout_analyzer.segment_waterfall_flow(image, content)
+        
+        return {
+            "safe_area": {
+                "header": header,
+                "footer": footer,
+                "content": content
+            },
+            "posts": posts
+        }
+
 
     def _setup_tesseract(self):
         # Attempt to find tesseract executable in common locations if not in PATH

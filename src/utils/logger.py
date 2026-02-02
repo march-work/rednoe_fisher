@@ -18,6 +18,10 @@ def setup_logger(name="fisher"):
 
     logger = logging.getLogger(name)
     logger.setLevel(logging.INFO)
+    logger.propagate = False
+
+    if logger.handlers:
+        return logger
 
     # File handler
     file_handler = logging.FileHandler(log_file, encoding='utf-8')
