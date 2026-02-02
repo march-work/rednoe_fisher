@@ -12,10 +12,10 @@ import re
 from src.modules.layout_analysis import LayoutAnalyzer
 
 class VisionEngine:
-    def __init__(self, logger, ocr_config, setup_tesseract=True):
+    def __init__(self, logger, ocr_config, layout_config=None, setup_tesseract=True):
         self.logger = logger
         self.config = ocr_config
-        self.layout_analyzer = LayoutAnalyzer()
+        self.layout_analyzer = LayoutAnalyzer(config=layout_config)
         if setup_tesseract:
             self._setup_tesseract()
 
@@ -39,6 +39,47 @@ class VisionEngine:
             },
             "posts": posts
         }
+
+    def extract_text_with_confidence(self, image, psm=None, lang=None):
+        if image is None:
+            return {"text": "", "avg_conf": 0.0, "tokens": [], "cjk_ratio": 0.0}
+
+        try:
+            processed_img = self.preprocess_image(image)
+            lang = lang or self.config.get("language", "chi_sim")
+            psm = int(psm if psm is not None else self.config.get("psm", 6))
+
+            data = pytesseract.image_to_data(
+                processed_img,
+                lang=lang,
+                config=f"--psm {psm}",
+                output_type=pytesseract.Output.DICT,
+            )
+            tokens = []
+            confs = []
+            parts = []
+            n = len(data.get("text", []))
+            for i in range(n):
+                raw = (data.get("text", [""])[i] or "").strip()
+                if not raw:
+                    continue
+                try:
+                    conf = float(data.get("conf", ["-1"])[i])
+                except Exception:
+                    conf = -1.0
+                parts.append(raw)
+                tokens.append({"text": raw, "conf": conf})
+                if conf >= 0:
+                    confs.append(conf)
+
+            text = " ".join(parts).strip()
+            avg_conf = float(sum(confs) / len(confs)) if confs else 0.0
+            cjk = re.findall(r"[\u4e00-\u9fff]", text)
+            cjk_ratio = float(len(cjk) / max(1, len(text)))
+            return {"text": text, "avg_conf": avg_conf, "tokens": tokens, "cjk_ratio": cjk_ratio}
+        except Exception as e:
+            self.logger.error(f"OCR extraction failed: {e}")
+            return {"text": "", "avg_conf": 0.0, "tokens": [], "cjk_ratio": 0.0}
 
 
     def _setup_tesseract(self):

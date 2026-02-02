@@ -86,14 +86,15 @@ class WindowManager:
             self.logger.error(f"Error getting window rect: {e}")
             return None
 
-    def get_client_screen_rect(self):
-        """Get the current rectangle of the target window client area in screen coordinates."""
-        if not self.target_hwnd:
+    def get_client_screen_rect(self, hwnd=None):
+        """Get the rectangle of a window client area in screen coordinates."""
+        hwnd = hwnd or self.target_hwnd
+        if not hwnd:
             return None
         try:
-            left, top, right, bottom = win32gui.GetClientRect(self.target_hwnd)
-            screen_left, screen_top = win32gui.ClientToScreen(self.target_hwnd, (left, top))
-            screen_right, screen_bottom = win32gui.ClientToScreen(self.target_hwnd, (right, bottom))
+            left, top, right, bottom = win32gui.GetClientRect(hwnd)
+            screen_left, screen_top = win32gui.ClientToScreen(hwnd, (left, top))
+            screen_right, screen_bottom = win32gui.ClientToScreen(hwnd, (right, bottom))
             return (screen_left, screen_top, screen_right, screen_bottom)
         except Exception as e:
             self.logger.error(f"Error getting client rect: {e}")

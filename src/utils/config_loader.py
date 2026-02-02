@@ -31,3 +31,32 @@ class ConfigLoader:
 
     def get_output_config(self):
         return self.config.get("output_config", {})
+
+    def get_layout_config(self):
+        layout = self.config.get("layout_config")
+        if isinstance(layout, dict):
+            return layout
+        keys = [
+            "meta_ratio",
+            "meta_min_h",
+            "meta_max_h",
+            "meta_boundary_search_px",
+            "title_ratio",
+            "title_padding_ratio",
+            "title_min_h",
+            "image_min_h",
+            "title_white_ratio_thr",
+            "title_white_run",
+            "title_row_dark_frac",
+            "title_line_h",
+            "title_line_ratio",
+            "title_line_h_min",
+            "title_line_h_max",
+            "title_pad_y",
+            "title_text_dark_frac_min",
+        ]
+        out = {}
+        for k in keys:
+            if k in self.config:
+                out[k] = self.config.get(k)
+        return out

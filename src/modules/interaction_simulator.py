@@ -5,20 +5,31 @@ import time
 import random
 
 from src.utils.overlay import VisualOverlay
+from src.utils.emulator_overlay import EmulatorOverlay
+from src.utils.coords import CoordinateSpace
 
 class InteractionSimulator:
-    def __init__(self, logger, scroll_config):
+    def __init__(self, logger, scroll_config, emulator_overlay_mask_alpha=38, emulator_overlay_fg_alpha=204):
         self.logger = logger
         self.config = scroll_config
         self.hwnd = None
         self.overlay = VisualOverlay()
+        self.emulator_overlay = EmulatorOverlay(mask_alpha=emulator_overlay_mask_alpha, fg_alpha=emulator_overlay_fg_alpha)
+        self.coords = CoordinateSpace()
+        self.last_scroll_direction = None
         # Start overlay thread
         self.overlay.start()
+        self.emulator_overlay.start()
 
     def set_target_window(self, hwnd):
         """Set the target window handle for background interaction."""
         self.hwnd = hwnd
+        self.coords.set_target(hwnd)
         self.logger.info(f"Interaction target set to HWND: {hwnd}")
+
+    def update_emulator_overlay(self, client_screen_rect, render_state):
+        self.emulator_overlay.set_target_rect(client_screen_rect)
+        self.emulator_overlay.set_render_state(render_state)
 
     def _get_client_center(self):
         """Get the center coordinates of the client area."""
@@ -107,6 +118,7 @@ class InteractionSimulator:
              return
 
         try:
+            self.last_scroll_direction = "down"
             cx, cy = self._get_client_center()
             rect = win32gui.GetClientRect(self.hwnd)
             win_w = rect[2]
@@ -206,6 +218,7 @@ class InteractionSimulator:
              return
 
         try:
+            self.last_scroll_direction = "up"
             cx, cy = self._get_client_center()
             rect = win32gui.GetClientRect(self.hwnd)
             height = rect[3]
